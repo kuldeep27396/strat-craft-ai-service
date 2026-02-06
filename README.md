@@ -8,6 +8,12 @@ StratCraft AI transforms how agencies create marketing proposals. Instead of spe
 
 **Formula:** `Common Input (Business Data) + Input (Client Questionnaire) = AI-Generated Strategy`
 
+## 🎥 Demo Walkthrough
+
+Check out the fully functional MVP in action:
+
+![StratCraft UI Walkthrough](assets/walkthrough.webp)
+
 ## 🏗️ Architecture
 
 This is a **monorepo** containing:
