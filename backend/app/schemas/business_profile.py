@@ -8,11 +8,11 @@ class BusinessProfileBase(BaseModel):
     business_name: str
     website: str | None = None
     industry: str | None = None
-    problems_solving: List[Dict[str, Any]] | None = None
-    target_customers: List[Dict[str, Any]] | None = None
-    products: List[Dict[str, Any]] | None = None
-    customer_stages: List[Dict[str, Any]] | None = None
-    trigger_events: List[Dict[str, Any]] | None = None
+    problems_solving: List[str] | None = None
+    target_customers: List[str] | None = None
+    products: List[str] | None = None
+    customer_stages: List[str] | None = None
+    trigger_events: List[str] | None = None
 
 
 class BusinessProfileCreate(BusinessProfileBase):
@@ -23,11 +23,11 @@ class BusinessProfileUpdate(BaseModel):
     business_name: str | None = None
     website: str | None = None
     industry: str | None = None
-    problems_solving: List[Dict[str, Any]] | None = None
-    target_customers: List[Dict[str, Any]] | None = None
-    products: List[Dict[str, Any]] | None = None
-    customer_stages: List[Dict[str, Any]] | None = None
-    trigger_events: List[Dict[str, Any]] | None = None
+    problems_solving: List[str] | None = None
+    target_customers: List[str] | None = None
+    products: List[str] | None = None
+    customer_stages: List[str] | None = None
+    trigger_events: List[str] | None = None
 
 
 class BusinessProfileResponse(BusinessProfileBase):

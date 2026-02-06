@@ -29,8 +29,64 @@ async def generate_strategy(strategy_request: StrategyGenerate, db: Session = De
     db.commit()
     db.refresh(new_strategy)
     
-    # TODO: Trigger async AI agent workflow here
-    # For now, just return the created strategy
+    # SIMULATION: Generate Mock Strategy immediately for MVP Demo
+    # In production, this would be a background Celery task
+    mock_content = {
+        "title": f"Growth Strategy for {questionnaire.client_name or 'Client'}",
+        "sections": [
+            {
+                "heading": "Executive Summary",
+                "content": f"Based on the analysis of {questionnaire.client_name or 'your business'}, we have identified a significant opportunity to capture market share through a targeted SEO and Content approach. The primary focus should be on solving '{questionnaire.problem_statement or 'customer pain points'}' by highlighting your unique value proposition.",
+                "tactics": [
+                    "Launch targeted content hub around core topics",
+                    "Optimize conversion paths for high-intent visitors",
+                    "Implement automated lead nurturing sequences"
+                ],
+                "kpis": [
+                    "Increase Organic Traffic by 40% in Q1",
+                    "Generate 50+ MQLs monthly",
+                    "Achieve Top 3 ranking for primary keywords"
+                ]
+            },
+            {
+                "heading": "SEO & Organic Search Strategy",
+                "content": "Your technical foundation is solid, but content depth is lacking compared to competitors. We recommend a 'Hub and Spoke' model.",
+                "tactics": [
+                    "Technical Audit & Core Web Vitals optimizaton",
+                    "Create 10 'Skyscraper' articles for high-volume keywords",
+                    "Backlink acquisition campaign targeting industry publications"
+                ],
+                "kpis": [
+                    "Domain Authority (DA) > 40",
+                    "Keyword Visibility Score > 15%"
+                ]
+            },
+            {
+                "heading": "Content Marketing Roadmap",
+                "content": f"To address the needs of your ICP ({questionnaire.target_icp or 'Target Audience'}), content must shift from product-centric to problem-centric.",
+                "tactics": [
+                    "Weekly case study publication",
+                    "LinkedIn thought leadership series for founders",
+                    "Gated whitepaper for lead capture"
+                ],
+                "kpis": [
+                    "Social Engagement Rate > 3%",
+                    "Whitepaper downloads: 100/month"
+                ]
+            }
+        ],
+        "pricing": {
+            "monthly_cost": 4500,
+            "team": ["SEO Specialist", "Content Writer", "Account Manager"]
+        }
+    }
+    
+    new_strategy.strategy_content = mock_content
+    new_strategy.status = "completed"
+    
+    db.add(new_strategy)
+    db.commit()
+    db.refresh(new_strategy)
     
     return new_strategy
 

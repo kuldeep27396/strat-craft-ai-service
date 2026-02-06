@@ -11,9 +11,9 @@ class QuestionnaireBase(BaseModel):
     problem_statement: str | None = None
     competitive_differentiation: str | None = None
     competitors: List[str] | None = None
-    target_icp: Dict[str, Any] | None = None
+    target_icp: str | None = None
     marketing_channels: List[str] | None = None
-    business_objectives: Dict[str, Any] | None = None
+    business_objectives: str | None = None
     budget_range: str | None = None
     timeline: str | None = None
 
@@ -28,9 +28,9 @@ class QuestionnaireUpdate(BaseModel):
     problem_statement: str | None = None
     competitive_differentiation: str | None = None
     competitors: List[str] | None = None
-    target_icp: Dict[str, Any] | None = None
+    target_icp: str | None = None
     marketing_channels: List[str] | None = None
-    business_objectives: Dict[str, Any] | None = None
+    business_objectives: str | None = None
     budget_range: str | None = None
     timeline: str | None = None
 
