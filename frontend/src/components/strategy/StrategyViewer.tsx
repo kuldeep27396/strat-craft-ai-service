@@ -9,8 +9,26 @@ interface StrategyViewerProps {
 export function StrategyViewer({ strategy }: StrategyViewerProps) {
     const { strategy_content } = strategy;
 
-    if (!strategy_content) {
-        return <div className="text-muted-foreground italic">Strategy content is empty or invalid.</div>;
+    if (!strategy || !strategy.strategy_content) {
+        return (
+            <div className="p-8 text-center border rounded-lg bg-muted/20">
+                <h3 className="text-lg font-medium">Strategy Generation in Progress</h3>
+                <p className="text-muted-foreground mt-2">The AI agents are working on your strategy. Please check back shortly.</p>
+            </div>
+        );
+    }
+
+    // Check if content structure is valid (has sections)
+    // @ts-ignore
+    const { title, sections, pricing } = strategy.strategy_content;
+
+    if (!sections || !Array.isArray(sections)) {
+        return (
+            <div className="p-8 text-center border rounded-lg bg-red-50 text-red-900">
+                <h3 className="text-lg font-medium">Strategy Content Error</h3>
+                <p className="mt-2">The generated strategy content appears to be malformed or incomplete.</p>
+            </div>
+        );
     }
 
     return (
