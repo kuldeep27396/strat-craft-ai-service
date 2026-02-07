@@ -1,36 +1,45 @@
 """
-AI Agent Orchestrator using LangGraph
+AI Agent Orchestrator using LangGraph with proper design patterns.
 
-This module implements a multi-agent system for strategy generation
-using Groq's fast LLM models (Llama 3.1 and Mixtral).
-
-Refactored following SOLID, DRY, and YAGNI principles.
+Implements:
+- Dependency Injection (inject providers, repositories)
+- Factory Pattern (AgentFactory, ChainFactory)
+- Strategy Pattern (concrete Agent implementations)
+- Repository Pattern (database access)
+- Builder Pattern (StrategyBuilder)
 """
 
-import os
 from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Optional
+from typing import Any, Callable, Optional
 from datetime import datetime
+from uuid import UUID
 
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.runnables import Runnable
 from langgraph.graph import StateGraph, END
 
 from app.config import settings
+from app.interfaces.llm_provider import LLMProvider
+from app.interfaces.repositories import StrategyRepository, QuestionnaireRepository
+from app.infrastructure.llm import GroqLLMProvider, GroqChainFactory
+from app.infrastructure.repositories import SQLAlchemyStrategyRepository, SQLAlchemyQuestionnaireRepository
+from app.agents.factory import AgentFactory
 from app.schemas.agent_output import StrategySection, PricingInfo, AgentContext
 
 
 @dataclass
-class AgentConfig:
-    """Configuration for a strategy generation agent."""
-    name: str
-    state_key: str
-    system_prompt: str
-    user_prompt_template: str
-    skip_condition: Optional[Callable[[AgentContext], bool]] = None
-    use_fast_llm: bool = False
+class OrchestratorConfig:
+    """Configuration for the orchestrator."""
+    llm_provider: LLMProvider | None = None
+    chain_factory: GroqChainFactory | None = None
+    agent_factory: AgentFactory | None = None
+    strategy_repository: StrategyRepository | None = None
+    questionnaire_repository: QuestionnaireRepository | None = None
+
+    def __post_init__(self):
+        """Initialize defaults if not provided."""
+        if self.llm_provider and not self.chain_factory:
+            self.chain_factory = GroqChainFactory(self.llm_provider)
+        if self.chain_factory and not self.agent_factory:
+            self.agent_factory = AgentFactory(self.chain_factory)
 
 
 @dataclass
@@ -40,148 +49,73 @@ class GraphState:
     sections: dict[str, StrategySection] = field(default_factory=dict)
     pricing: Optional[dict] = None
     quality_passed: bool = False
+    error: Optional[str] = None
 
 
-# Agent configurations - DRY: define once, use everywhere
-AGENT_CONFIGS = [
-    AgentConfig(
-        name="executive_summary",
-        state_key="executive_summary",
-        system_prompt="""You are an expert marketing strategist. Generate a compelling executive summary for a marketing strategy.
+class StrategyBuilder:
+    """Builder for constructing the final strategy output."""
 
-Executive Summary should:
-- Provide a high-level overview of the recommended approach
-- Highlight the key opportunity identified
-- Outline the primary focus areas
-- Be concise but impactful (2-3 paragraphs)
+    @staticmethod
+    def build_title(client_name: str) -> str:
+        return f"Growth Strategy for {client_name}"
 
-{format_instructions}""",
-        user_prompt_template="""Generate an executive summary for:
+    @staticmethod
+    def build_sections(sections_dict: dict[str, StrategySection]) -> list[dict]:
+        return [s.model_dump() for s in sections_dict.values()]
 
-Client: {client_name}
-Industry: {industry}
-Problem They Solve: {problem_statement}
-Target ICP: {target_icp}
-Business Objectives: {business_objectives}
-Budget: {budget_range}
-Preferred Channels: {marketing_channels}
+    @staticmethod
+    def build_metadata(model: str, sections_count: int) -> dict:
+        return {
+            "model": model,
+            "generated_at": datetime.utcnow().isoformat(),
+            "sections_count": sections_count
+        }
 
-Focus on creating a summary that builds confidence and clarity."""
-    ),
-    AgentConfig(
-        name="seo",
-        state_key="seo_section",
-        system_prompt="""You are an SEO expert. Generate a comprehensive SEO strategy section.
-
-The SEO Strategy should include:
-- Technical SEO recommendations
-- Content strategy for organic growth
-- Keyword approach and target topics
-- Link building strategy
-- Specific tactics (3-5 actions)
-- Measurable KPIs (2-4 metrics)
-
-{format_instructions}""",
-        user_prompt_template="""Generate an SEO strategy for:
-
-Client: {client_name}
-Industry: {industry}
-Problem They Solve: {problem_statement}
-Target ICP: {target_icp}
-Products: {products}
-
-Focus on practical, actionable SEO recommendations that align with their business."""
-    ),
-    AgentConfig(
-        name="content",
-        state_key="content_section",
-        system_prompt="""You are a content marketing expert. Generate a content marketing strategy section.
-
-The Content Marketing Strategy should include:
-- Editorial approach and content themes
-- Content types and formats
-- Distribution channels
-- Content calendar framework
-- Specific tactics (3-5 actions)
-- Measurable KPIs (2-4 metrics)
-
-{format_instructions}""",
-        user_prompt_template="""Generate a content marketing strategy for:
-
-Client: {client_name}
-Industry: {industry}
-Problem They Solve: {problem_statement}
-Target ICP: {target_icp}
-Business Objectives: {business_objectives}
-Preferred Channels: {marketing_channels}
-
-Create a content strategy that speaks directly to their target audience's needs."""
-    ),
-    AgentConfig(
-        name="paid_ads",
-        state_key="paid_ads_section",
-        system_prompt="""You are a paid advertising expert. Generate a paid advertising strategy section.
-
-The Paid Ads Strategy should include:
-- Platform recommendations (Google, Meta, LinkedIn, etc.)
-- Budget allocation strategy
-- Campaign types and targeting approach
-- Ad creative framework
-- Specific tactics (3-5 actions)
-- Measurable KPIs (2-4 metrics)
-
-{format_instructions}""",
-        user_prompt_template="""Generate a paid advertising strategy for:
-
-Client: {client_name}
-Industry: {industry}
-Target ICP: {target_icp}
-Budget: {budget_range}
-Preferred Channels: {marketing_channels}
-
-Recommend efficient paid channels that maximize ROI within their budget.""",
-        skip_condition=lambda ctx: any(term in (ctx.budget_range or "").lower() for term in ['$0', 'none', 'organic only', 'no budget'])
-    ),
-]
+    @classmethod
+    def build(cls, context: AgentContext, sections: dict[str, StrategySection], pricing: dict, model: str) -> dict:
+        """Build the complete strategy output."""
+        return {
+            "title": cls.build_title(context.client_name),
+            "sections": cls.build_sections(sections),
+            "pricing": pricing,
+            "metadata": cls.build_metadata(model, len(sections))
+        }
 
 
 class StrategyOrchestrator:
     """
-    Orchestrator for AI strategy generation using LangGraph.
+    Orchestrator for AI strategy generation with proper dependency injection.
 
-    Follows Single Responsibility: only coordinates workflow execution.
-    Agent logic is data-driven via AgentConfig.
+    Following SOLID principles:
+    - Single Responsibility: coordinates workflow
+    - Open/Closed: extensible via factory pattern
+    - Liskov Substitution: works with any LLMProvider/Repository
+    - Interface Segregation: focused interfaces
+    - Dependency Inversion: depends on abstractions
     """
 
-    def __init__(self, groq_api_key: str | None = None):
-        """Initialize with LLM clients."""
-        self.api_key = groq_api_key or getattr(settings, 'GROQ_API_KEY', None) or os.getenv('GROQ_API_KEY')
-        if not self.api_key:
-            raise ValueError("GROQ_API_KEY required. Get it at https://console.groq.com/")
+    def __init__(self, config: OrchestratorConfig | None = None):
+        """Initialize with dependency injection."""
+        self.config = config or OrchestratorConfig()
 
-        # YAGNI: Only two models needed, not three
-        self.llm = ChatGroq(api_key=self.api_key, model_name=getattr(settings, 'GROQ_MODEL', 'llama-3.1-70b-tool-use'))
-        self.fast_llm = ChatGroq(api_key=self.api_key, model_name=getattr(settings, 'GROQ_FAST_MODEL', 'llama-3.1-8b-instant'))
+        # Initialize dependencies
+        if not self.config.llm_provider:
+            self.config.llm_provider = GroqLLMProvider()
 
-        # Pre-build chains for each agent (Open/Closed Principle)
-        self._chains: dict[str, Runnable] = {}
-        for config in AGENT_CONFIGS:
-            self._chains[config.name] = self._build_chain(config)
+        if not self.config.chain_factory:
+            self.config.chain_factory = GroqChainFactory(self.config.llm_provider)
 
+        if not self.config.agent_factory:
+            self.config.agent_factory = AgentFactory(self.config.chain_factory)
+
+        # Get agents
+        self.agents = self.config.agent_factory.create_all_agents()
+
+        # Build workflow
         self.workflow = self._build_workflow()
 
-    def _build_chain(self, config: AgentConfig) -> Runnable:
-        """Build an LLM chain from config."""
-        parser = PydanticOutputParser(pydantic_object=StrategySection)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", config.system_prompt),
-            ("user", config.user_prompt_template)
-        ])
-        llm = self.fast_llm if config.use_fast_llm else self.llm
-        return prompt | llm | parser
-
-    def _build_context(self, business_profile: Dict, questionnaire: Dict) -> AgentContext:
-        """Build context with safe defaults (DRY: extract helper logic)."""
+    def _build_context(self, business_profile: dict, questionnaire: dict) -> AgentContext:
+        """Build context with safe defaults."""
         def safe_list(val: Any) -> list | None:
             return val if isinstance(val, list) else None
 
@@ -200,84 +134,71 @@ class StrategyOrchestrator:
             target_customers=safe_list(business_profile.get('target_customers'))
         )
 
-    def _format_context_params(self, context: AgentContext, include_products: bool = False) -> Dict[str, str]:
-        """Format context for LLM prompts (DRY: single source of truth)."""
-        return {
-            "client_name": context.client_name,
-            "industry": context.industry,
-            "problem_statement": context.problem_statement,
-            "target_icp": context.target_icp,
-            "business_objectives": ", ".join(context.business_objectives or []),
-            "budget_range": context.budget_range or "Not specified",
-            "marketing_channels": ", ".join(context.marketing_channels or []),
-            **({"products": ", ".join(context.products or [])} if include_products else {})
-        }
-
-    async def _run_agent(self, config: AgentConfig, state: GraphState) -> GraphState:
-        """Run a single agent (Template Method pattern)."""
-        # Check skip condition
-        if config.skip_condition and config.skip_condition(state['context']):
+    async def _run_agent(self, agent: Any, state: GraphState) -> GraphState:
+        """Run a single agent (Strategy Pattern)."""
+        if agent.should_skip(state['context']):
             return state
 
-        chain = self._chains[config.name]
-        params = self._format_context_params(
-            state['context'],
-            include_products=config.name == "seo"
-        )
+        try:
+            section = await agent.execute(state['context'])
+            state['sections'][agent.state_key] = section
+        except Exception as e:
+            state['error'] = f"{agent.name} failed: {e}"
 
-        result = await chain.ainvoke(params)
-        state['sections'][config.state_key] = result
         return state
 
     async def _check_quality(self, state: GraphState) -> GraphState:
         """Validate minimum required sections."""
-        state['quality_passed'] = len(state['sections']) >= 2
+        state['quality_passed'] = len(state['sections']) >= 2 and not state['error']
         return state
 
-    async def _assemble_pricing(self, state: GraphState) -> GraphState:
-        """Generate pricing using fast LLM."""
-        parser = PydanticOutputParser(pydantic_object=PricingInfo)
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """Generate appropriate pricing and team recommendations. Consider industry, scope, and budget. {format_instructions}"""),
-            ("user", "Client: {client_name}\nIndustry: {industry}\nBudget: {budget_range}\nChannels: {marketing_channels}")
-        ])
-
-        chain = prompt | self.fast_llm | parser
-        params = self._format_context_params(state['context'])
+    async def _generate_pricing(self, state: GraphState) -> GraphState:
+        """Generate pricing using chain factory."""
+        chain = self.config.chain_factory.create_pricing_chain()
+        params = {
+            "client_name": state['context'].client_name,
+            "industry": state['context'].industry,
+            "budget_range": state['context'].budget_range or "Not specified",
+            "marketing_channels": ", ".join(state['context'].marketing_channels or []),
+        }
 
         result = await chain.ainvoke(params)
         state['pricing'] = result.model_dump()
         return state
 
-    async def _assemble_final(self, state: GraphState) -> GraphState:
-        """Build final output structure."""
-        return {
-            **state,
-            'final_strategy': {
-                "title": f"Growth Strategy for {state['context'].client_name}",
-                "sections": [s.model_dump() for s in state['sections'].values()],
-                "pricing": state['pricing']
-            }
-        }
+    async def _build_final(self, state: GraphState) -> GraphState:
+        """Build final output using Builder Pattern."""
+        if not state['quality_passed']:
+            state['final_strategy'] = None
+            return state
+
+        model = getattr(settings, 'GROQ_MODEL', 'llama-3.1-70b-tool-use')
+        state['final_strategy'] = StrategyBuilder.build(
+            state['context'],
+            state['sections'],
+            state['pricing'],
+            model
+        )
+        return state
 
     def _build_workflow(self) -> StateGraph:
         """Build the LangGraph workflow."""
         workflow = StateGraph(GraphState)
 
-        # Add all agent nodes dynamically (DRY: no repetition)
-        for config in AGENT_CONFIGS:
-            workflow.add_node(config.name, lambda s, c=config: self._run_agent(c, s))
+        # Add agent nodes dynamically
+        for agent in self.agents:
+            workflow.add_node(agent.state_key, lambda s, a=agent: self._run_agent(a, s))
 
         workflow.add_node("quality_check", self._check_quality)
-        workflow.add_node("pricing", self._assemble_pricing)
-        workflow.add_node("final", self._assemble_final)
+        workflow.add_node("pricing", self._generate_pricing)
+        workflow.add_node("final", self._build_final)
 
-        # Build sequential workflow (simpler than claimed "parallel")
-        workflow.set_entry_point(AGENT_CONFIGS[0].name)
-        for i in range(len(AGENT_CONFIGS) - 1):
-            workflow.add_edge(AGENT_CONFIGS[i].name, AGENT_CONFIGS[i + 1].name)
+        # Build sequential workflow
+        workflow.set_entry_point(self.agents[0].state_key)
+        for i in range(len(self.agents) - 1):
+            workflow.add_edge(self.agents[i].state_key, self.agents[i + 1].state_key)
 
-        workflow.add_edge(AGENT_CONFIGS[-1].name, "quality_check")
+        workflow.add_edge(self.agents[-1].state_key, "quality_check")
         workflow.add_conditional_edges(
             "quality_check",
             lambda s: "pricing" if s['quality_passed'] else END,
@@ -288,27 +209,37 @@ class StrategyOrchestrator:
 
         return workflow.compile()
 
-    async def generate_strategy(self, business_profile: Dict, questionnaire: Dict) -> Dict[str, Any]:
+    async def generate_strategy(self, business_profile: dict, questionnaire: dict) -> dict:
         """
         Generate marketing strategy.
 
         Args:
-            business_profile: {name, industry, products, problems_solving, target_customers}
-            questionnaire: {client_name, problem_statement, target_icp, business_objectives, budget_range, marketing_channels}
+            business_profile: Business profile data
+            questionnaire: Questionnaire data
 
         Returns:
-            {title, sections: [...], pricing: {...}, metadata: {...}}
+            Generated strategy dict
         """
         context = self._build_context(business_profile, questionnaire)
         result = await self.workflow.ainvoke(GraphState(context=context))
 
         if not result.get('final_strategy'):
-            raise ValueError("Strategy generation failed")
-
-        result['final_strategy']['metadata'] = {
-            "model": getattr(settings, 'GROQ_MODEL', 'llama-3.1-70b-tool-use'),
-            "generated_at": datetime.utcnow().isoformat(),
-            "sections_count": len(result['final_strategy'].get('sections', []))
-        }
+            error_msg = result.get('error', 'Unknown error')
+            raise ValueError(f"Strategy generation failed: {error_msg}")
 
         return result['final_strategy']
+
+
+# Convenience factory function
+def create_orchestrator(
+    llm_provider: LLMProvider | None = None,
+    strategy_repository: StrategyRepository | None = None,
+    questionnaire_repository: QuestionnaireRepository | None = None
+) -> StrategyOrchestrator:
+    """Factory function to create an orchestrator with dependencies."""
+    config = OrchestratorConfig(
+        llm_provider=llm_provider,
+        strategy_repository=strategy_repository,
+        questionnaire_repository=questionnaire_repository
+    )
+    return StrategyOrchestrator(config)
