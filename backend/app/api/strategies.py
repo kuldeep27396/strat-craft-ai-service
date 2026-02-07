@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from uuid import UUID
+from datetime import datetime
 from app.database import get_db
 from app.schemas import StrategyGenerate, StrategyResponse, StrategyUpdate
-from app.models import Strategy, Questionnaire
+from app.models import Strategy, Questionnaire, BusinessProfile
+from app.agents.orchestrator import StrategyOrchestrator
 
 router = APIRouter()
 
@@ -28,66 +30,87 @@ async def generate_strategy(strategy_request: StrategyGenerate, db: Session = De
     db.add(new_strategy)
     db.commit()
     db.refresh(new_strategy)
-    
-    # SIMULATION: Generate Mock Strategy immediately for MVP Demo
-    # In production, this would be a background Celery task
-    mock_content = {
-        "title": f"Growth Strategy for {questionnaire.client_name or 'Client'}",
-        "sections": [
-            {
-                "heading": "Executive Summary",
-                "content": f"Based on the analysis of {questionnaire.client_name or 'your business'}, we have identified a significant opportunity to capture market share through a targeted SEO and Content approach. The primary focus should be on solving '{questionnaire.problem_statement or 'customer pain points'}' by highlighting your unique value proposition.",
-                "tactics": [
-                    "Launch targeted content hub around core topics",
-                    "Optimize conversion paths for high-intent visitors",
-                    "Implement automated lead nurturing sequences"
-                ],
-                "kpis": [
-                    "Increase Organic Traffic by 40% in Q1",
-                    "Generate 50+ MQLs monthly",
-                    "Achieve Top 3 ranking for primary keywords"
-                ]
-            },
-            {
-                "heading": "SEO & Organic Search Strategy",
-                "content": "Your technical foundation is solid, but content depth is lacking compared to competitors. We recommend a 'Hub and Spoke' model.",
-                "tactics": [
-                    "Technical Audit & Core Web Vitals optimizaton",
-                    "Create 10 'Skyscraper' articles for high-volume keywords",
-                    "Backlink acquisition campaign targeting industry publications"
-                ],
-                "kpis": [
-                    "Domain Authority (DA) > 40",
-                    "Keyword Visibility Score > 15%"
-                ]
-            },
-            {
-                "heading": "Content Marketing Roadmap",
-                "content": f"To address the needs of your ICP ({questionnaire.target_icp or 'Target Audience'}), content must shift from product-centric to problem-centric.",
-                "tactics": [
-                    "Weekly case study publication",
-                    "LinkedIn thought leadership series for founders",
-                    "Gated whitepaper for lead capture"
-                ],
-                "kpis": [
-                    "Social Engagement Rate > 3%",
-                    "Whitepaper downloads: 100/month"
-                ]
-            }
-        ],
-        "pricing": {
-            "monthly_cost": 4500,
-            "team": ["SEO Specialist", "Content Writer", "Account Manager"]
+
+    # Fetch related business profile
+    business_profile = db.query(BusinessProfile).filter(
+        BusinessProfile.id == questionnaire.business_profile_id
+    ).first()
+
+    if not business_profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business profile not found for this questionnaire"
+        )
+
+    # Initialize orchestrator and generate strategy using AI agents
+    try:
+        orchestrator = StrategyOrchestrator()
+
+        # Prepare business profile data
+        business_profile_data = {
+            "name": business_profile.business_name,
+            "industry": business_profile.industry,
+            "products": business_profile.products,
+            "problems_solving": business_profile.problems_solving,
+            "target_customers": business_profile.target_customers,
         }
-    }
-    
-    new_strategy.strategy_content = mock_content
-    new_strategy.status = "completed"
-    
+
+        # Prepare questionnaire data
+        questionnaire_data = {
+            "client_name": questionnaire.client_name,
+            "problem_statement": questionnaire.problem_statement,
+            "target_icp": questionnaire.target_icp,
+            "business_objectives": questionnaire.business_objectives,
+            "budget_range": questionnaire.budget_range,
+            "marketing_channels": questionnaire.marketing_channels,
+        }
+
+        # Generate strategy using AI agents
+        strategy_data = await orchestrator.generate_strategy(
+            business_profile=business_profile_data,
+            questionnaire=questionnaire_data
+        )
+
+        new_strategy.strategy_content = strategy_data
+        new_strategy.status = "completed"
+        new_strategy.generation_metadata = {
+            "model": strategy_data.get("metadata", {}).get("model", "unknown"),
+            "generated_at": strategy_data.get("metadata", {}).get("generated_at", datetime.utcnow().isoformat()),
+            "sections_count": strategy_data.get("metadata", {}).get("sections_count", 0)
+        }
+
+    except ValueError as e:
+        # Handle configuration errors (e.g., missing API key)
+        new_strategy.status = "failed"
+        new_strategy.generation_metadata = {
+            "error": str(e),
+            "error_type": "configuration_error"
+        }
+        db.add(new_strategy)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Strategy generation configuration error: {str(e)}"
+        )
+    except Exception as e:
+        # Handle generation errors
+        new_strategy.status = "failed"
+        new_strategy.generation_metadata = {
+            "error": str(e),
+            "error_type": "generation_error",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        db.add(new_strategy)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Strategy generation failed: {str(e)}"
+        )
+
     db.add(new_strategy)
     db.commit()
     db.refresh(new_strategy)
-    
+
     return new_strategy
 
 

@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str | None = None
     MAX_TOKENS: int = 4096
     TEMPERATURE: float = 0.7
+
+    # Groq / LLM
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.1-70b-tool-use"  # Primary model
+    GROQ_FAST_MODEL: str = "llama-3.1-8b-instant"  # For quick tasks
+    GROQ_RESEARCH_MODEL: str = "mixtral-8x7b"  # For research/analysis
     
     # Vector Database
     PINECONE_API_KEY: str | None = None

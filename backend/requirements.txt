@@ -10,7 +10,8 @@ python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
 langchain
-langgraph
+langchain-groq>=1.1.2
+langgraph>=0.2.0
 openai
 tiktoken
 python-dotenv

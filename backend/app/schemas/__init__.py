@@ -10,6 +10,13 @@ from .questionnaire import (
     QuestionnaireResponse
 )
 from .strategy import StrategyGenerate, StrategyResponse, StrategyUpdate
+from .agent_output import (
+    StrategySection,
+    PricingInfo,
+    StrategyContent,
+    AgentContext,
+    AgentState
+)
 
 __all__ = [
     "UserCreate",
@@ -26,4 +33,9 @@ __all__ = [
     "StrategyGenerate",
     "StrategyResponse",
     "StrategyUpdate",
+    "StrategySection",
+    "PricingInfo",
+    "StrategyContent",
+    "AgentContext",
+    "AgentState",
 ]
