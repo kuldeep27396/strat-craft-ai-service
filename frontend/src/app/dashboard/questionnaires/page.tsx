@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from 'next/link';
 import { useRouter } from "next/navigation";
 import { getQuestionnaires } from "@/lib/api/questionnaires";
-import { generateStrategy } from "@/lib/api/strategies";
+import { generateStrategy, pollStrategyCompletion } from "@/lib/api/strategies";
 import { Questionnaire } from "@/types/questionnaire";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
@@ -14,6 +14,7 @@ export default function QuestionnairesPage() {
     const [questionnaires, setQuestionnaires] = useState<Questionnaire[]>([]);
     const [loading, setLoading] = useState(true);
     const [generatingId, setGeneratingId] = useState<string | null>(null);
+    const [progress, setProgress] = useState(0);
 
     useEffect(() => {
         getQuestionnaires()
@@ -24,14 +25,27 @@ export default function QuestionnairesPage() {
 
     const handleGenerate = async (qId: string) => {
         setGeneratingId(qId);
+        setProgress(0);
+
         try {
+            // Start generation
             const strategy = await generateStrategy({ questionnaire_id: qId });
-            router.push(`/dashboard/strategies/${strategy.id}`);
+
+            // Poll for completion with progress updates
+            const completedStrategy = await pollStrategyCompletion(
+                strategy.id,
+                (prog) => setProgress(prog),
+                2000,
+                45 // Up to 90 seconds
+            );
+
+            router.push(`/dashboard/strategies/${completedStrategy.id}`);
         } catch (error) {
             console.error("Generation failed", error);
-            alert("Failed to start generation");
+            alert("Failed to generate strategy. Please try again.");
         } finally {
             setGeneratingId(null);
+            setProgress(0);
         }
     };
 
@@ -83,7 +97,8 @@ export default function QuestionnairesPage() {
                                 >
                                     {generatingId === q.id ? (
                                         <>
-                                            <span className="animate-spin mr-2">⟳</span> Generating...
+                                            <span className="animate-spin mr-2">⟳</span>
+                                            AI Generating... {progress > 0 && `${progress}%`}
                                         </>
                                     ) : (
                                         <>
@@ -92,6 +107,14 @@ export default function QuestionnairesPage() {
                                         </>
                                     )}
                                 </Button>
+                                {generatingId === q.id && progress > 0 && (
+                                    <div className="w-full mt-2 bg-gray-200 rounded-full h-1.5">
+                                        <div
+                                            className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                                            style={{ width: `${progress}%` }}
+                                        />
+                                    </div>
+                                )}
                             </CardFooter>
                         </Card>
                     ))}

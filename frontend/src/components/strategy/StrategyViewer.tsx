@@ -9,11 +9,23 @@ interface StrategyViewerProps {
 export function StrategyViewer({ strategy }: StrategyViewerProps) {
     const { strategy_content } = strategy;
 
-    if (!strategy || !strategy.strategy_content) {
+    if (!strategy || !strategy.strategy_content || strategy.status === 'generating') {
         return (
-            <div className="p-8 text-center border rounded-lg bg-muted/20">
-                <h3 className="text-lg font-medium">Strategy Generation in Progress</h3>
-                <p className="text-muted-foreground mt-2">The AI agents are working on your strategy. Please check back shortly.</p>
+            <div className="p-12 text-center border rounded-lg bg-muted/20">
+                <div className="flex justify-center mb-4">
+                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary"></div>
+                </div>
+                <h3 className="text-xl font-semibold mb-2">AI Agents Working on Your Strategy</h3>
+                <p className="text-muted-foreground max-w-md mx-auto">
+                    Our multi-agent system is analyzing your requirements. This includes:
+                </p>
+                <ul className="text-left text-sm text-muted-foreground max-w-xs mx-auto mt-4 space-y-1">
+                    <li>• Building context from your profile</li>
+                    <li>• Generating SEO strategy</li>
+                    <li>• Creating content marketing roadmap</li>
+                    <li>• Estimating pricing and resources</li>
+                </ul>
+                <p className="text-muted-foreground mt-4 text-sm">This typically takes 15-30 seconds.</p>
             </div>
         );
     }
